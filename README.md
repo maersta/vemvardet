@@ -2,15 +2,16 @@
 
 > Tre grabbar. En fråga. Noll värdighet.
 
-Ett brutalt, roligt party-spel för exakt **3 spelare** som sitter tillsammans på samma telefon — perfekt för en kväll på Airbnb. Ingen backend, ingen app store, bara en webbsida.
+Ett brutalt, roligt party-spel för exakt **3 spelare** — perfekt för en kväll på Airbnb. Spela på **samma telefon** eller **varsin telefon** (via WebRTC, helt utan server/databas). Ingen backend, ingen app store, bara en webbsida.
 
 ## Vad är det?
 
-"Vem fan är det?" är ett röstningsspel där varje runda visar en obekväm, personlig eller provocerande fråga (t.ex. *"Vem skulle ligga med sitt ex igen trots att han vet exakt hur dålig idé det är?"*). Alla tre spelare röstar i tur och ordning på samma enhet om vem av de tre frågan passar bäst in på. När alla röstat avslöjas resultatet dramatiskt, poäng delas ut, och efter 15 frågor koras en vinnare med en skämtsam titel.
+"Vem fan är det?" är ett röstningsspel där varje runda visar en obekväm, personlig eller provocerande fråga (t.ex. *"Vem skulle ligga med sitt ex igen trots att han vet exakt hur dålig idé det är?"*). Alla tre spelare röstar på vem av de tre frågan passar bäst in på. När alla röstat avslöjas resultatet dramatiskt, poäng delas ut, och efter 15 frågor koras en vinnare med en skämtsam titel.
 
 Spelet innehåller:
 
 - 60+ unika, brutala/roliga frågor uppdelade i 8 kategorier (🔥 Brutal, 🍺 Fylla, ❤️ Relationer, 🤡 Pinsamt, 💀 Mörk humor, 💰 Pengar, 🧠 Personlighet, 👀 Hemligheter)
+- Två spellägen: **samma telefon** (skickas runt) eller **varsin telefon** (peer-to-peer)
 - Ett röstningsflöde med bekräftelsesteg så ingen råkar klicka fel
 - Animerad resultat-reveal med staplar
 - Ett levande topplista/scoreboard
@@ -21,16 +22,33 @@ Spelet innehåller:
 
 ## Hur man spelar
 
-1. Öppna sidan på en telefon (eller dator).
-2. Skriv in namnen på alla tre spelare.
-3. Tryck **STARTA SKITEN**.
-4. Läs frågan tillsammans, tryck **BÖRJA RÖSTA**.
-5. Lämna över telefonen — varje spelare röstar i sin tur (röster är dolda tills alla röstat).
-6. Se resultatet, poängen delas ut automatiskt.
-7. Tryck **NÄSTA FRÅGA** och fortsätt tills alla 15 frågor är klara.
-8. Se slutresultatet och vinnarens titel. Tryck **SPELA IGEN** för en ny omgång.
+### Läge 1: Samma telefon
+
+1. Öppna sidan, välj **SAMMA TELEFON**.
+2. Skriv in namnen på alla tre spelare, tryck **STARTA SKITEN**.
+3. Läs frågan tillsammans, tryck **BÖRJA RÖSTA**.
+4. Lämna över telefonen — varje spelare röstar i sin tur (röster är dolda tills alla röstat).
+5. Se resultatet, poängen delas ut automatiskt.
+6. Tryck **NÄSTA FRÅGA** och fortsätt tills alla 15 frågor är klara.
+7. Se slutresultatet och vinnarens titel. Tryck **SPELA IGEN** för en ny omgång.
+
+### Läge 2: Varsin telefon (multiplayer)
+
+Ingen av er behöver installera något eller skapa ett konto — telefonerna kopplas ihop direkt via WebRTC (peer-to-peer). En gratis publik "signaleringstjänst" (PeerJS moln) används bara för att presentera telefonerna för varandra; själva frågorna, rösterna och poängen skickas aldrig till någon server eller databas.
+
+**Värden (en av er):**
+1. Välj **VARSIN TELEFON** → **SKAPA SPEL**, skriv ditt namn.
+2. Du får en 4-tecken rumskod + en QR-kod.
+
+**De andra två:**
+1. Välj **VARSIN TELEFON** → **GÅ MED I SPEL**.
+2. Skriv ert namn och rumskoden (eller skanna QR-koden, som öppnar sidan med koden ifylld).
+
+När alla tre visas i väntrummet trycker värden **STARTA SPELET**. Alla tre röstar samtidigt, var för sig, på sin egen telefon — värdens telefon styr takten (visar resultat och går vidare till nästa fråga åt alla).
 
 Tryck på poängrutan högst upp när som helst för att se hela topplistan.
+
+> Kräver att alla tre telefoner har internetanslutning (mobildata eller wifi) för att hitta varandra första gången — spelet i sig kör sedan direkt mellan telefonerna.
 
 ## Köra lokalt
 
@@ -57,18 +75,23 @@ Alla filreferenser i projektet är relativa (`style.css`, `script.js`), så spel
 ## Teknik
 
 - Ren HTML5, CSS3 och vanilla JavaScript (ES6+)
-- Ingen build-process, inga npm-paket, inget ramverk
-- Fungerar helt offline efter första sidladdningen
+- Ingen build-process, inga npm-paket att installera, inget ramverk
+- **PeerJS** (vendorad lokalt i `vendor/`) för WebRTC peer-to-peer-anslutning mellan telefoner i multiplayer-läget — ingen egen server, ingen databas
+- En liten vendorad QR-kodgenerator (`vendor/qrcode.min.js`) för att rendera rumskoden som QR-kod, helt lokalt utan nätverksanrop
+- Samma-telefon-läget fungerar helt offline efter första sidladdningen; multiplayer-läget kräver internet för att telefonerna ska hitta varandra
 - Namn sparas i `localStorage` för snabbare omstart
 
 ## Filstruktur
 
 ```
 /
-├── index.html   – all markup/skärmar
-├── style.css    – mörkt, glasigt party-tema med animationer
-├── script.js    – spelmotor: frågor, röstning, poäng, events
-└── README.md    – denna fil
+├── index.html            – all markup/skärmar (båda spellägen)
+├── style.css             – mörkt, glasigt party-tema med animationer
+├── script.js             – spelmotor: frågor, röstning, poäng, events, multiplayer
+├── vendor/
+│   ├── peerjs.min.js     – WebRTC-bibliotek (peer-to-peer-anslutning)
+│   └── qrcode.min.js     – QR-kodgenerator (för rumskoden)
+└── README.md             – denna fil
 ```
 
 ## Vill du lägga till fler frågor?

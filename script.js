@@ -145,6 +145,7 @@ const SPECIAL_EVENT_INTERVAL = 5;
    STATE
    --------------------------------------------------------- */
 let state = {
+  mode: 'local', // 'local' | 'host' | 'guest'
   players: ['', '', ''],
   scores: [0, 0, 0],
   round: 0,
@@ -164,8 +165,15 @@ let state = {
 const $ = (id) => document.getElementById(id);
 
 const screens = {
-  start: $('screen-start'),
+  modeSelect: $('screen-mode-select'),
+  localSetup: $('screen-local-setup'),
   game: $('screen-game'),
+  remoteChoice: $('screen-remote-choice'),
+  hostName: $('screen-host-name'),
+  hostLobby: $('screen-host-lobby'),
+  joinForm: $('screen-join-form'),
+  guestLobby: $('screen-guest-lobby'),
+  remoteGame: $('screen-remote-game'),
   over: $('screen-over'),
 };
 
@@ -187,6 +195,34 @@ function showStage(name) {
   Object.values(stages).forEach((s) => s.classList.remove('active'));
   stages[name].classList.add('active');
 }
+
+const rStages = {
+  question: $('r-stage-question'),
+  vote: $('r-stage-vote'),
+  confirm: $('r-stage-confirm'),
+  waiting: $('r-stage-waiting'),
+  chaos: $('r-stage-chaos'),
+  reveal: $('r-stage-reveal'),
+};
+
+function showRStage(name) {
+  Object.values(rStages).forEach((s) => s.classList.remove('active'));
+  rStages[name].classList.add('active');
+}
+
+/* ---------------------------------------------------------
+   NAVIGATION — mode select + generic back buttons
+   --------------------------------------------------------- */
+$('btn-mode-local').addEventListener('click', () => showScreen('localSetup'));
+$('btn-mode-remote').addEventListener('click', () => showScreen('remoteChoice'));
+
+document.querySelectorAll('[data-back-to]').forEach((btn) => {
+  btn.addEventListener('click', () => {
+    const targetId = btn.getAttribute('data-back-to');
+    Object.values(screens).forEach((s) => s.classList.remove('active'));
+    document.getElementById(targetId).classList.add('active');
+  });
+});
 
 /* ---------------------------------------------------------
    UTIL
@@ -234,6 +270,7 @@ $('setup-form').addEventListener('submit', (e) => {
 });
 
 function startGame(names) {
+  state.mode = 'local';
   state.players = names;
   state.scores = [0, 0, 0];
   state.round = 0;
@@ -608,8 +645,17 @@ function endGame() {
   $('round-label').textContent = `FRÅGA ${TOTAL_ROUNDS} / ${TOTAL_ROUNDS}`;
   $('progress-bar').style.width = '100%';
 
-  const ranked = state.players
-    .map((name, i) => ({ name, score: state.scores[i] }))
+  renderGameOverUI(state.players, state.scores);
+  updateGameOverControls();
+  showScreen('over');
+  launchConfetti();
+}
+
+// renderGameOverUI() builds the final ranking + winner title.
+// Shared by local mode and the multiplayer (host/guest) game-over flow.
+function renderGameOverUI(players, scores) {
+  const ranked = players
+    .map((name, i) => ({ name, score: scores[i] }))
     .sort((a, b) => b.score - a.score);
 
   const medals = ['🥇', '🥈', '🥉'];
@@ -628,9 +674,13 @@ function endGame() {
 
   const winnerTitle = WINNER_TITLES[Math.floor(Math.random() * WINNER_TITLES.length)];
   $('winner-title-card').innerHTML = `${ranked[0].name.toUpperCase()} FÅR TITELN:<br>${winnerTitle}`;
+}
 
-  showScreen('over');
-  launchConfetti();
+// Shows/hides "SPELA IGEN" vs "väntar på värden" depending on multiplayer role.
+function updateGameOverControls() {
+  const isGuest = state.mode === 'guest';
+  $('btn-play-again').hidden = isGuest;
+  $('over-wait').hidden = !isGuest;
 }
 
 function launchConfetti() {
@@ -652,7 +702,13 @@ function launchConfetti() {
   setTimeout(() => { layer.innerHTML = ''; }, 5000);
 }
 
-$('btn-play-again').addEventListener('click', resetGame);
+$('btn-play-again').addEventListener('click', () => {
+  if (state.mode === 'host') {
+    resetRemoteGame();
+  } else if (state.mode !== 'guest') {
+    resetGame();
+  }
+});
 
 function resetGame() {
   state.scores = [0, 0, 0];
@@ -666,8 +722,568 @@ function resetGame() {
   nextQuestion();
 }
 
+/* =========================================================
+   MULTIPLAYER — "VARSIN TELEFON" (WebRTC via PeerJS)
+   No server, no database: phones connect directly to each other
+   over WebRTC data channels. PeerJS's free public broker is only
+   used to introduce the phones to each other (signaling) — the
+   votes, questions and scores themselves never touch a database.
+
+   The host device is the authoritative source of truth: it builds
+   the question pool, picks special events, tallies votes and
+   broadcasts every state change. Guest devices just render what
+   they're sent and report their own votes back to the host.
+   ========================================================= */
+
+const ROOM_PREFIX = 'vfad-';
+const ROOM_CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // no O/0/I/1 (avoid confusion)
+
+let net = {
+  peer: null,
+  conns: [null, null],      // host only: guest connections, indexed by seat-1
+  hostConn: null,           // guest only: connection to the host
+  seatNames: [null, null, null],
+  mySeat: 0,
+  roomCode: '',
+  pendingVoteChoice: null,
+};
+
+function randomRoomCode() {
+  let code = '';
+  for (let i = 0; i < 4; i++) {
+    code += ROOM_CODE_CHARS[Math.floor(Math.random() * ROOM_CODE_CHARS.length)];
+  }
+  return code;
+}
+
+function tallyVotes(votes) {
+  const tally = [0, 0, 0];
+  votes.forEach((v) => { if (v !== null) tally[v] += 1; });
+  return tally;
+}
+
+function broadcastToGuests(msg) {
+  net.conns.forEach((conn) => {
+    if (conn && conn.open) conn.send(msg);
+  });
+}
+
 /* ---------------------------------------------------------
-   INIT — prefill names from a previous session, if any.
+   HOST: create room
+   --------------------------------------------------------- */
+function createHostRoom(hostName, attemptsLeft) {
+  if (attemptsLeft === undefined) attemptsLeft = 6;
+  const code = randomRoomCode();
+  const peer = new Peer(ROOM_PREFIX + code, { debug: 0 });
+
+  peer.on('open', () => {
+    net.peer = peer;
+    net.roomCode = code;
+    net.seatNames = [hostName, null, null];
+    net.mySeat = 0;
+    net.conns = [null, null];
+    state.mode = 'host';
+    state.players = [hostName, '', ''];
+
+    $('room-code-display').textContent = code;
+    renderQrCode(buildJoinUrl(code));
+    renderHostLobby();
+    showScreen('hostLobby');
+
+    peer.on('connection', handleIncomingConnection);
+  });
+
+  peer.on('error', (err) => {
+    if (err && err.type === 'unavailable-id' && attemptsLeft > 0) {
+      peer.destroy();
+      createHostRoom(hostName, attemptsLeft - 1);
+    } else {
+      showHostError('Kunde inte skapa rum. Kolla din internetanslutning och försök igen.');
+    }
+  });
+}
+
+function showHostError(msg) {
+  const el = $('host-error');
+  el.textContent = msg;
+  el.hidden = false;
+}
+
+function buildJoinUrl(code) {
+  return `${location.origin}${location.pathname}?room=${code}`;
+}
+
+function renderQrCode(url) {
+  const box = $('qr-box');
+  box.innerHTML = '';
+  try {
+    const qr = qrcode(0, 'M');
+    qr.addData(url);
+    qr.make();
+    box.innerHTML = qr.createSvgTag({ cellSize: 5, margin: 2 });
+  } catch (err) {
+    box.hidden = true;
+  }
+}
+
+function handleIncomingConnection(conn) {
+  const freeSeat = net.seatNames.findIndex((n, i) => i > 0 && !n && !net.conns[i - 1]);
+  if (freeSeat === -1) {
+    conn.on('open', () => {
+      conn.send({ type: 'full' });
+      setTimeout(() => conn.close(), 300);
+    });
+    return;
+  }
+
+  net.conns[freeSeat - 1] = conn;
+
+  conn.on('data', (msg) => handleHostMessage(freeSeat, msg));
+  conn.on('close', () => handleGuestDisconnect(freeSeat));
+  conn.on('error', () => handleGuestDisconnect(freeSeat));
+}
+
+function handleGuestDisconnect(seatIdx) {
+  net.conns[seatIdx - 1] = null;
+  net.seatNames[seatIdx] = null;
+  if (state.players) state.players[seatIdx] = '';
+  broadcastLobby();
+  if (screens.hostLobby.classList.contains('active')) renderHostLobby();
+}
+
+function handleHostMessage(seatIdx, msg) {
+  if (!msg || !msg.type) return;
+
+  if (msg.type === 'hello') {
+    net.seatNames[seatIdx] = msg.name;
+    state.players[seatIdx] = msg.name;
+    const conn = net.conns[seatIdx - 1];
+    if (conn) conn.send({ type: 'welcome', seat: seatIdx });
+    broadcastLobby();
+    renderHostLobby();
+  } else if (msg.type === 'vote') {
+    recordRemoteVote(seatIdx, msg.choice);
+  }
+}
+
+function broadcastLobby() {
+  broadcastToGuests({ type: 'lobby', seats: net.seatNames });
+}
+
+function renderHostLobby() {
+  renderSeatList('lobby-seat-list', net.seatNames);
+  const ready = net.seatNames.every(Boolean);
+  const btn = $('btn-host-start');
+  btn.disabled = !ready;
+  btn.textContent = ready ? 'STARTA SPELET' : 'VÄNTAR PÅ SPELARE…';
+}
+
+function renderSeatList(elementId, seatNames) {
+  const list = $(elementId);
+  list.innerHTML = '';
+  seatNames.forEach((name, i) => {
+    const li = document.createElement('li');
+    li.textContent = name ? `${i === 0 ? '👑 ' : ''}${name}` : `Väntar på spelare ${i + 1}…`;
+    li.className = name ? 'seat-filled' : 'seat-empty';
+    list.appendChild(li);
+  });
+}
+
+$('host-name-form').addEventListener('submit', (e) => {
+  e.preventDefault();
+  const name = $('input-host-name').value.trim();
+  if (!name) return;
+  $('host-error').hidden = true;
+  createHostRoom(name);
+});
+
+$('btn-host-start').addEventListener('click', () => {
+  if (!net.seatNames.every(Boolean)) return;
+  state.scores = [0, 0, 0];
+  state.round = 0;
+  state.questionPool = buildQuestionPool();
+  state.players = net.seatNames.slice();
+
+  broadcastToGuests({ type: 'start', seats: net.seatNames });
+  showScreen('remoteGame');
+  renderRemoteScoreboard(false);
+  nextQuestionRemote();
+});
+
+/* ---------------------------------------------------------
+   GUEST: join room
+   --------------------------------------------------------- */
+function joinRoom(name, codeRaw) {
+  const code = codeRaw.trim().toUpperCase();
+  if (code.length !== 4) {
+    showJoinError('Rumskoden ska vara 4 tecken.');
+    return;
+  }
+
+  $('join-error').hidden = true;
+  const peer = new Peer({ debug: 0 });
+
+  peer.on('open', () => {
+    net.peer = peer;
+    const conn = peer.connect(ROOM_PREFIX + code, { reliable: true });
+    net.hostConn = conn;
+
+    conn.on('open', () => {
+      conn.send({ type: 'hello', name });
+    });
+    conn.on('data', handleGuestMessage);
+    conn.on('close', () => {
+      showJoinError('Tappade anslutningen till värden.');
+    });
+    conn.on('error', () => {
+      showJoinError('Kunde inte ansluta. Kolla koden och försök igen.');
+    });
+  });
+
+  peer.on('error', (err) => {
+    showJoinError('Kunde inte ansluta. Kolla koden och försök igen.');
+  });
+}
+
+function showJoinError(msg) {
+  const el = $('join-error');
+  el.textContent = msg;
+  el.hidden = false;
+}
+
+function handleGuestMessage(msg) {
+  if (!msg || !msg.type) return;
+
+  if (msg.type === 'welcome') {
+    net.mySeat = msg.seat;
+    state.mode = 'guest';
+  } else if (msg.type === 'full') {
+    showJoinError('Rummet är fullt (max 3 spelare).');
+    if (net.hostConn) net.hostConn.close();
+  } else if (msg.type === 'lobby') {
+    net.seatNames = msg.seats;
+    state.players = msg.seats.map((n) => n || '');
+    renderSeatList('guest-seat-list', net.seatNames);
+    if (!screens.guestLobby.classList.contains('active') && !screens.remoteGame.classList.contains('active')) {
+      showScreen('guestLobby');
+    }
+  } else if (msg.type === 'start') {
+    state.players = msg.seats.slice();
+    state.scores = [0, 0, 0];
+    state.round = 0;
+    showScreen('remoteGame');
+    renderRemoteScoreboard(false);
+  } else if (msg.type === 'round') {
+    applyRemoteRound(msg.payload);
+  } else if (msg.type === 'voteCount') {
+    updateRemoteWaitCount(msg.count);
+  } else if (msg.type === 'chaosPrompt') {
+    showRemoteChaosStage();
+  } else if (msg.type === 'reveal') {
+    applyRemoteReveal(msg.payload);
+  } else if (msg.type === 'gameOver') {
+    applyRemoteGameOver(msg.payload);
+  }
+}
+
+$('join-form').addEventListener('submit', (e) => {
+  e.preventDefault();
+  const name = $('input-join-name').value.trim();
+  const code = $('input-join-code').value.trim();
+  if (!name || !code) return;
+  joinRoom(name, code);
+});
+
+$('btn-remote-host').addEventListener('click', () => showScreen('hostName'));
+$('btn-remote-join').addEventListener('click', () => showScreen('joinForm'));
+
+/* ---------------------------------------------------------
+   SHARED REMOTE GAME RENDERING
+   Used by both the host (applying its own broadcasts) and
+   guests (applying messages received from the host).
+   --------------------------------------------------------- */
+function applyRemoteRound(payload) {
+  state.round = payload.round;
+  state.players = payload.players;
+  state.scores = payload.scores;
+  state.currentQuestion = { cat: payload.cat, text: payload.text };
+  state.activeSpecialEvent = payload.specialEvent || null;
+  state.votes = [null, null, null];
+  net.pendingVoteChoice = null;
+
+  $('r-round-label').textContent = `FRÅGA ${state.round} / ${TOTAL_ROUNDS}`;
+  $('r-progress-bar').style.width = `${((state.round - 1) / TOTAL_ROUNDS) * 100}%`;
+
+  $('r-category-badge').textContent = CATEGORIES[state.currentQuestion.cat];
+  $('r-question-text').textContent = state.currentQuestion.text;
+
+  if (state.activeSpecialEvent) {
+    $('r-special-event-icon').textContent = state.activeSpecialEvent.icon;
+    $('r-special-event-text').textContent = `${state.activeSpecialEvent.label}: ${state.activeSpecialEvent.desc}`;
+    $('r-special-event-banner').hidden = false;
+  } else {
+    $('r-special-event-banner').hidden = true;
+  }
+
+  renderRemoteScoreboard(false);
+  showScreen('remoteGame');
+  showRStage('question');
+}
+
+$('r-btn-start-voting').addEventListener('click', () => {
+  renderRemoteVoteButtons();
+  showRStage('vote');
+});
+
+function renderRemoteVoteButtons() {
+  const container = $('r-vote-buttons');
+  container.innerHTML = '';
+  const event = state.activeSpecialEvent;
+  const leaderIdx = getLeaderIndex();
+
+  state.players.forEach((name, idx) => {
+    if (event && event.id === 'target' && idx === leaderIdx && idx === net.mySeat) return;
+    const btn = document.createElement('button');
+    btn.className = 'vote-btn';
+    btn.textContent = name.toUpperCase();
+    btn.setAttribute('aria-label', `Rösta på ${name}`);
+    btn.addEventListener('click', () => castRemoteVote(idx));
+    container.appendChild(btn);
+  });
+}
+
+function castRemoteVote(idx) {
+  net.pendingVoteChoice = idx;
+  $('r-confirm-choice-text').textContent = state.players[idx].toUpperCase();
+  showRStage('confirm');
+}
+
+$('r-btn-confirm-yes').addEventListener('click', confirmRemoteVote);
+$('r-btn-confirm-no').addEventListener('click', () => showRStage('vote'));
+
+function confirmRemoteVote() {
+  const choice = net.pendingVoteChoice;
+  net.pendingVoteChoice = null;
+
+  showRStage('waiting');
+  updateRemoteWaitCount(state.votes.filter((v) => v !== null).length);
+
+  if (state.mode === 'host') {
+    recordRemoteVote(net.mySeat, choice);
+  } else {
+    net.hostConn.send({ type: 'vote', choice });
+  }
+}
+
+function updateRemoteWaitCount(count) {
+  $('r-wait-count').textContent = `Väntar på de andra… (${count}/3)`;
+}
+
+// recordRemoteVote() — host-only. Stores a vote (its own or a guest's),
+// tells everyone how many votes are in, and moves on once all 3 are in.
+function recordRemoteVote(seatIdx, choice) {
+  state.votes[seatIdx] = choice;
+  const count = state.votes.filter((v) => v !== null).length;
+  broadcastToGuests({ type: 'voteCount', count });
+  updateRemoteWaitCount(count);
+  if (count === 3) hostFinishVoting();
+}
+
+function hostFinishVoting() {
+  if (state.activeSpecialEvent && state.activeSpecialEvent.id === 'chaos') {
+    broadcastToGuests({ type: 'chaosPrompt' });
+    showRemoteChaosStage();
+  } else {
+    hostRevealAndBroadcast();
+  }
+}
+
+function showRemoteChaosStage() {
+  const isHost = state.mode === 'host';
+  $('r-btn-chaos-continue').hidden = !isHost;
+  $('r-chaos-wait').hidden = isHost;
+  showRStage('chaos');
+}
+
+$('r-btn-chaos-continue').addEventListener('click', () => {
+  if (state.mode === 'host') hostRevealAndBroadcast();
+});
+
+function hostRevealAndBroadcast() {
+  const tally = tallyVotes(state.votes);
+  const gains = calculateScores(tally);
+  state.scores = state.scores.map((s, i) => s + gains[i]);
+  const payload = { tally, gains, scores: state.scores.slice() };
+  broadcastToGuests({ type: 'reveal', payload });
+  applyRemoteReveal(payload);
+}
+
+function applyRemoteReveal(payload) {
+  state.lastRoundGains = payload.gains;
+  state.scores = payload.scores;
+
+  renderRemoteRevealBars(payload.tally, payload.gains);
+  renderRemoteVerdict(payload.tally);
+  renderRemotePointsGained(payload.gains);
+  renderRemoteScoreboard(true);
+
+  const isHost = state.mode === 'host';
+  $('r-btn-next-question').hidden = !isHost;
+  $('r-reveal-wait').hidden = isHost;
+
+  showRStage('reveal');
+}
+
+function renderRemoteRevealBars(tally, gains) {
+  const container = $('r-reveal-bars');
+  container.innerHTML = '';
+  const maxVotes = Math.max(...tally, 1);
+  const order = state.players.map((_, i) => i).sort((a, b) => tally[b] - tally[a]);
+
+  order.forEach((idx) => {
+    const row = document.createElement('div');
+    row.className = 'reveal-bar-row';
+    if (tally[idx] === maxVotes && maxVotes > 0) row.classList.add('winner');
+
+    const label = document.createElement('div');
+    label.className = 'reveal-bar-label';
+    label.innerHTML = `<span>${state.players[idx].toUpperCase()}</span><span>${tally[idx]}</span>`;
+
+    const track = document.createElement('div');
+    track.className = 'reveal-bar-track';
+    const fill = document.createElement('div');
+    fill.className = 'reveal-bar-fill';
+    track.appendChild(fill);
+
+    row.appendChild(label);
+    row.appendChild(track);
+    container.appendChild(row);
+
+    requestAnimationFrame(() => {
+      setTimeout(() => { fill.style.width = `${(tally[idx] / maxVotes) * 100}%`; }, 60);
+    });
+  });
+}
+
+function renderRemoteVerdict(tally) {
+  const maxVotes = Math.max(...tally);
+  const winners = state.players.filter((_, i) => tally[i] === maxVotes);
+  const verdictEl = $('r-reveal-verdict');
+
+  if (maxVotes === 0) {
+    verdictEl.textContent = 'Ingen röstade på någon?! Fegisar.';
+  } else if (winners.length > 1) {
+    verdictEl.textContent = `💀 OAVGJORT MELLAN ${winners.join(' & ').toUpperCase()}`;
+  } else {
+    verdictEl.textContent = `💀 ${winners[0].toUpperCase()} ÄR DEN STÖRSTA JÄVELN`;
+  }
+  verdictEl.style.animation = 'none';
+  void verdictEl.offsetWidth;
+  verdictEl.style.animation = '';
+}
+
+function renderRemotePointsGained(gains) {
+  const parts = state.players
+    .map((name, i) => (gains[i] > 0 ? `${name} <span class="pg-plus">+${gains[i]}</span>` : null))
+    .filter(Boolean);
+  $('r-points-gained').innerHTML = parts.length ? parts.join(' &nbsp;·&nbsp; ') : 'Ingen fick poäng denna runda.';
+}
+
+function renderRemoteScoreboard(animate) {
+  const leaderScore = Math.max(...state.scores);
+
+  const mini = $('r-scoreboard-mini-list');
+  mini.innerHTML = '';
+  state.players.forEach((name, i) => {
+    const entry = document.createElement('div');
+    entry.className = 'sb-entry' + (state.scores[i] === leaderScore && leaderScore > 0 ? ' leader' : '');
+    const gain = state.lastRoundGains[i];
+    entry.innerHTML = `
+      <span class="sb-name">${name}</span>
+      <span class="sb-pts${animate && gain > 0 ? ' score-pop' : ''}">${state.scores[i]}</span>
+    `;
+    mini.appendChild(entry);
+  });
+
+  const full = $('r-scoreboard-full-list');
+  full.innerHTML = '';
+  const ranked = state.players
+    .map((name, i) => ({ name, score: state.scores[i] }))
+    .sort((a, b) => b.score - a.score);
+  ranked.forEach((p) => {
+    const li = document.createElement('li');
+    if (p.score === leaderScore && leaderScore > 0) li.classList.add('leader');
+    li.innerHTML = `<span>${p.name}</span><span>${p.score} p</span>`;
+    full.appendChild(li);
+  });
+}
+
+$('r-scoreboard-toggle').addEventListener('click', () => {
+  $('r-scoreboard-panel').hidden = false;
+  $('r-scoreboard-toggle').setAttribute('aria-expanded', 'true');
+});
+$('r-scoreboard-close').addEventListener('click', () => {
+  $('r-scoreboard-panel').hidden = true;
+  $('r-scoreboard-toggle').setAttribute('aria-expanded', 'false');
+});
+
+$('r-btn-next-question').addEventListener('click', () => {
+  if (state.mode === 'host') nextQuestionRemote();
+});
+
+function nextQuestionRemote() {
+  if (state.round >= TOTAL_ROUNDS) {
+    endGameRemote();
+    return;
+  }
+  state.round += 1;
+  state.votes = [null, null, null];
+  state.activeSpecialEvent = (state.round % SPECIAL_EVENT_INTERVAL === 0)
+    ? SPECIAL_EVENTS[Math.floor(Math.random() * SPECIAL_EVENTS.length)]
+    : null;
+  state.currentQuestion = state.questionPool[state.round - 1];
+
+  const payload = {
+    round: state.round,
+    cat: state.currentQuestion.cat,
+    text: state.currentQuestion.text,
+    players: state.players.slice(),
+    scores: state.scores.slice(),
+    specialEvent: state.activeSpecialEvent,
+  };
+
+  broadcastToGuests({ type: 'round', payload });
+  applyRemoteRound(payload);
+}
+
+function endGameRemote() {
+  const payload = { players: state.players.slice(), scores: state.scores.slice() };
+  broadcastToGuests({ type: 'gameOver', payload });
+  applyRemoteGameOver(payload);
+}
+
+function applyRemoteGameOver(payload) {
+  state.players = payload.players;
+  state.scores = payload.scores;
+  renderGameOverUI(state.players, state.scores);
+  updateGameOverControls();
+  showScreen('over');
+  launchConfetti();
+}
+
+// resetRemoteGame() — host's "SPELA IGEN". Keeps the same room/connections
+// alive and jumps everyone straight back into round 1.
+function resetRemoteGame() {
+  state.scores = [0, 0, 0];
+  state.round = 0;
+  state.questionPool = buildQuestionPool();
+  state.activeSpecialEvent = null;
+  nextQuestionRemote();
+}
+
+/* ---------------------------------------------------------
+   INIT — prefill names from a previous session, and auto-fill
+   a room code if opened via a shared join link (?room=CODE).
    --------------------------------------------------------- */
 (function init() {
   try {
@@ -678,4 +1294,13 @@ function resetGame() {
       $('input-p3').value = saved[2] || '';
     }
   } catch (err) { /* ignore malformed storage */ }
+
+  try {
+    const params = new URLSearchParams(location.search);
+    const room = params.get('room');
+    if (room) {
+      $('input-join-code').value = room.toUpperCase().slice(0, 4);
+      showScreen('joinForm');
+    }
+  } catch (err) { /* ignore malformed URL */ }
 })();

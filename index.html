@@ -11,12 +11,28 @@
 
 <div id="app">
 
-  <!-- ================= START SCREEN ================= -->
-  <section id="screen-start" class="screen active">
+  <!-- ================= MODE SELECT SCREEN ================= -->
+  <section id="screen-mode-select" class="screen active">
     <div class="bg-glow"></div>
     <div class="content-wrap">
       <h1 class="title-main">VEM FAN<br>ÄR DET?</h1>
       <p class="subtitle">Tre grabbar. En fråga. Noll värdighet.</p>
+
+      <div class="mode-buttons">
+        <button id="btn-mode-local" class="btn btn-primary btn-huge">SAMMA TELEFON</button>
+        <button id="btn-mode-remote" class="btn btn-secondary btn-huge">VARSIN TELEFON</button>
+      </div>
+      <p class="footnote">18+ · Endast för de med tjock skinn</p>
+    </div>
+  </section>
+
+  <!-- ================= LOCAL SETUP (same-phone mode) ================= -->
+  <section id="screen-local-setup" class="screen">
+    <div class="bg-glow"></div>
+    <div class="content-wrap">
+      <button class="btn-back" data-back-to="screen-mode-select" aria-label="Tillbaka">← TILLBAKA</button>
+      <h1 class="title-main">VEM FAN<br>ÄR DET?</h1>
+      <p class="subtitle">Skriv in era namn.</p>
 
       <form id="setup-form" class="setup-form" autocomplete="off">
         <label class="name-label" for="input-p1">SPELARE 1</label>
@@ -30,11 +46,10 @@
 
         <button type="submit" class="btn btn-primary btn-huge" id="btn-start">STARTA SKITEN</button>
       </form>
-      <p class="footnote">18+ · Endast för de med tjock skinn</p>
     </div>
   </section>
 
-  <!-- ================= GAME SCREEN ================= -->
+  <!-- ================= LOCAL GAME SCREEN (same-phone mode) ================= -->
   <section id="screen-game" class="screen">
     <header class="topbar">
       <button id="scoreboard-toggle" class="scoreboard-mini" aria-expanded="false" aria-controls="scoreboard-panel">
@@ -119,6 +134,175 @@
     </main>
   </section>
 
+  <!-- ================= REMOTE: HOST OR JOIN CHOICE ================= -->
+  <section id="screen-remote-choice" class="screen">
+    <div class="bg-glow"></div>
+    <div class="content-wrap">
+      <button class="btn-back" data-back-to="screen-mode-select" aria-label="Tillbaka">← TILLBAKA</button>
+      <h1 class="title-main">VARSIN<br>TELEFON</h1>
+      <p class="subtitle">Ingen server, ingen databas — bara era telefoner.</p>
+      <div class="mode-buttons">
+        <button id="btn-remote-host" class="btn btn-primary btn-huge">SKAPA SPEL</button>
+        <button id="btn-remote-join" class="btn btn-secondary btn-huge">GÅ MED I SPEL</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= REMOTE: HOST — enter name ================= -->
+  <section id="screen-host-name" class="screen">
+    <div class="bg-glow"></div>
+    <div class="content-wrap">
+      <button class="btn-back" data-back-to="screen-remote-choice" aria-label="Tillbaka">← TILLBAKA</button>
+      <h1 class="title-main title-small">SKAPA SPEL</h1>
+      <p class="subtitle">Du blir värd. Skriv ditt namn.</p>
+      <form id="host-name-form" class="setup-form" autocomplete="off">
+        <label class="name-label" for="input-host-name">DITT NAMN</label>
+        <input class="name-input" id="input-host-name" type="text" maxlength="14" placeholder="t.ex. Jimmy" required aria-label="Ditt namn">
+        <button type="submit" class="btn btn-primary btn-huge">SKAPA RUM</button>
+      </form>
+      <p id="host-error" class="error-text" hidden></p>
+    </div>
+  </section>
+
+  <!-- ================= REMOTE: HOST LOBBY ================= -->
+  <section id="screen-host-lobby" class="screen">
+    <div class="bg-glow"></div>
+    <div class="content-wrap">
+      <h1 class="title-main title-small">VÄNTRUM</h1>
+      <p class="subtitle">Låt de andra scanna eller skriva in koden.</p>
+
+      <div class="room-code-box">
+        <span class="room-code-label">RUMSKOD</span>
+        <span id="room-code-display" class="room-code-value">----</span>
+      </div>
+      <div id="qr-box" class="qr-box"></div>
+
+      <ul id="lobby-seat-list" class="lobby-seat-list"></ul>
+
+      <button id="btn-host-start" class="btn btn-primary btn-huge" disabled>VÄNTAR PÅ SPELARE…</button>
+      <button class="btn btn-ghost" data-back-to="screen-remote-choice" id="btn-host-cancel">AVBRYT</button>
+      <p id="host-lobby-error" class="error-text" hidden></p>
+    </div>
+  </section>
+
+  <!-- ================= REMOTE: JOIN FORM ================= -->
+  <section id="screen-join-form" class="screen">
+    <div class="bg-glow"></div>
+    <div class="content-wrap">
+      <button class="btn-back" data-back-to="screen-remote-choice" aria-label="Tillbaka">← TILLBAKA</button>
+      <h1 class="title-main title-small">GÅ MED</h1>
+      <p class="subtitle">Skriv rumskoden ni fick av värden.</p>
+      <form id="join-form" class="setup-form" autocomplete="off">
+        <label class="name-label" for="input-join-name">DITT NAMN</label>
+        <input class="name-input" id="input-join-name" type="text" maxlength="14" placeholder="t.ex. Jamie" required aria-label="Ditt namn">
+
+        <label class="name-label" for="input-join-code">RUMSKOD</label>
+        <input class="name-input code-input" id="input-join-code" type="text" maxlength="4" placeholder="ABCD" required aria-label="Rumskod" autocapitalize="characters">
+
+        <button type="submit" class="btn btn-primary btn-huge">GÅ MED</button>
+      </form>
+      <p id="join-error" class="error-text" hidden></p>
+    </div>
+  </section>
+
+  <!-- ================= REMOTE: GUEST LOBBY ================= -->
+  <section id="screen-guest-lobby" class="screen">
+    <div class="bg-glow"></div>
+    <div class="content-wrap">
+      <h1 class="title-main title-small">ANSLUTEN!</h1>
+      <p class="subtitle">Väntar på att värden startar spelet…</p>
+      <ul id="guest-seat-list" class="lobby-seat-list"></ul>
+      <div class="spinner" aria-hidden="true"></div>
+    </div>
+  </section>
+
+  <!-- ================= REMOTE GAME SCREEN ================= -->
+  <section id="screen-remote-game" class="screen">
+    <header class="topbar">
+      <button id="r-scoreboard-toggle" class="scoreboard-mini" aria-expanded="false" aria-controls="r-scoreboard-panel">
+        <span class="sb-title">🏆 POÄNG</span>
+        <div id="r-scoreboard-mini-list" class="sb-mini-list"></div>
+      </button>
+      <div class="round-indicator">
+        <span id="r-round-label">FRÅGA 1 / 15</span>
+        <div class="progress-track"><div id="r-progress-bar" class="progress-bar"></div></div>
+      </div>
+    </header>
+
+    <div id="r-scoreboard-panel" class="scoreboard-panel" hidden>
+      <h2>🏆 POÄNGSTÄLLNING</h2>
+      <ul id="r-scoreboard-full-list" class="sb-full-list"></ul>
+      <button id="r-scoreboard-close" class="btn btn-ghost">STÄNG</button>
+    </div>
+
+    <main class="game-main">
+
+      <div id="r-special-event-banner" class="special-event-banner" hidden>
+        <span id="r-special-event-icon" class="se-icon"></span>
+        <span id="r-special-event-text" class="se-text"></span>
+      </div>
+
+      <!-- Question preview, per device -->
+      <div id="r-stage-question" class="stage active">
+        <span id="r-category-badge" class="category-badge">🔥 BRUTAL</span>
+        <h2 id="r-question-text" class="question-text">Fråga...</h2>
+        <button id="r-btn-start-voting" class="btn btn-primary btn-huge">BÖRJA RÖSTA</button>
+      </div>
+
+      <!-- Own vote -->
+      <div id="r-stage-vote" class="stage">
+        <div class="voter-card">
+          <p class="voter-heading">DIN RÖST</p>
+          <p class="voter-sub">Välj den som passar bäst.</p>
+          <div id="r-vote-buttons" class="vote-buttons"></div>
+        </div>
+      </div>
+
+      <!-- Confirm -->
+      <div id="r-stage-confirm" class="stage">
+        <div class="confirm-card">
+          <p class="confirm-heading">Är du säker?</p>
+          <p class="confirm-choice" id="r-confirm-choice-text"></p>
+          <div class="confirm-actions">
+            <button id="r-btn-confirm-yes" class="btn btn-primary btn-huge">JA, KÖR</button>
+            <button id="r-btn-confirm-no" class="btn btn-ghost btn-huge">ÄNDRA</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Waiting for others -->
+      <div id="r-stage-waiting" class="stage">
+        <div class="locked-card">
+          <div class="lock-icon">🔒</div>
+          <p class="locked-text">RÖST LÅST</p>
+          <p class="voter-sub" id="r-wait-count">Väntar på de andra… (1/3)</p>
+          <div class="spinner" aria-hidden="true"></div>
+        </div>
+      </div>
+
+      <!-- Chaos -->
+      <div id="r-stage-chaos" class="stage">
+        <div class="voter-card">
+          <p class="voter-heading">💀 KAOS!</p>
+          <p class="voter-sub">Alla måste förklara sin röst högt innan ni går vidare.</p>
+          <button id="r-btn-chaos-continue" class="btn btn-primary btn-huge">VI HAR FÖRKLARAT OSS</button>
+          <p class="voter-sub" id="r-chaos-wait" hidden>Väntar på att värden går vidare…</p>
+        </div>
+      </div>
+
+      <!-- Reveal -->
+      <div id="r-stage-reveal" class="stage">
+        <h2 class="reveal-title">RESULTAT</h2>
+        <div id="r-reveal-bars" class="reveal-bars"></div>
+        <p id="r-reveal-verdict" class="reveal-verdict"></p>
+        <div id="r-points-gained" class="points-gained"></div>
+        <button id="r-btn-next-question" class="btn btn-primary btn-huge">NÄSTA FRÅGA</button>
+        <p id="r-reveal-wait" class="voter-sub" hidden>Väntar på att värden går vidare…</p>
+      </div>
+
+    </main>
+  </section>
+
   <!-- ================= GAME OVER SCREEN ================= -->
   <section id="screen-over" class="screen">
     <div class="bg-glow"></div>
@@ -127,12 +311,15 @@
       <div id="final-ranking" class="final-ranking"></div>
       <div id="winner-title-card" class="winner-title-card"></div>
       <button id="btn-play-again" class="btn btn-primary btn-huge">SPELA IGEN</button>
+      <p id="over-wait" class="voter-sub" hidden>Väntar på att värden startar ett nytt spel…</p>
     </div>
     <div id="confetti-layer" class="confetti-layer" aria-hidden="true"></div>
   </section>
 
 </div>
 
+<script src="vendor/peerjs.min.js"></script>
+<script src="vendor/qrcode.min.js"></script>
 <script src="script.js"></script>
 </body>
 </html>
