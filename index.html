@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="sv">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#0a0a0f">
+<title>VEM FAN ÄR DET?</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div id="app">
+
+  <!-- ================= START SCREEN ================= -->
+  <section id="screen-start" class="screen active">
+    <div class="bg-glow"></div>
+    <div class="content-wrap">
+      <h1 class="title-main">VEM FAN<br>ÄR DET?</h1>
+      <p class="subtitle">Tre grabbar. En fråga. Noll värdighet.</p>
+
+      <form id="setup-form" class="setup-form" autocomplete="off">
+        <label class="name-label" for="input-p1">SPELARE 1</label>
+        <input class="name-input" id="input-p1" type="text" maxlength="14" placeholder="t.ex. Jimmy" required aria-label="Namn på spelare 1">
+
+        <label class="name-label" for="input-p2">SPELARE 2</label>
+        <input class="name-input" id="input-p2" type="text" maxlength="14" placeholder="t.ex. Jamie" required aria-label="Namn på spelare 2">
+
+        <label class="name-label" for="input-p3">SPELARE 3</label>
+        <input class="name-input" id="input-p3" type="text" maxlength="14" placeholder="t.ex. Christopher" required aria-label="Namn på spelare 3">
+
+        <button type="submit" class="btn btn-primary btn-huge" id="btn-start">STARTA SKITEN</button>
+      </form>
+      <p class="footnote">18+ · Endast för de med tjock skinn</p>
+    </div>
+  </section>
+
+  <!-- ================= GAME SCREEN ================= -->
+  <section id="screen-game" class="screen">
+    <header class="topbar">
+      <button id="scoreboard-toggle" class="scoreboard-mini" aria-expanded="false" aria-controls="scoreboard-panel">
+        <span class="sb-title">🏆 POÄNG</span>
+        <div id="scoreboard-mini-list" class="sb-mini-list"></div>
+      </button>
+      <div class="round-indicator">
+        <span id="round-label">FRÅGA 1 / 15</span>
+        <div class="progress-track"><div id="progress-bar" class="progress-bar"></div></div>
+      </div>
+    </header>
+
+    <div id="scoreboard-panel" class="scoreboard-panel" hidden>
+      <h2>🏆 POÄNGSTÄLLNING</h2>
+      <ul id="scoreboard-full-list" class="sb-full-list"></ul>
+      <button id="scoreboard-close" class="btn btn-ghost">STÄNG</button>
+    </div>
+
+    <main class="game-main">
+
+      <!-- Special event banner -->
+      <div id="special-event-banner" class="special-event-banner" hidden>
+        <span id="special-event-icon" class="se-icon"></span>
+        <span id="special-event-text" class="se-text"></span>
+      </div>
+
+      <!-- QUESTION STAGE -->
+      <div id="stage-question" class="stage active">
+        <span id="category-badge" class="category-badge">🔥 BRUTAL</span>
+        <h2 id="question-text" class="question-text">Fråga...</h2>
+        <div id="vote-buttons" class="vote-buttons"></div>
+        <button id="btn-start-voting" class="btn btn-primary btn-huge">BÖRJA RÖSTA</button>
+      </div>
+
+      <!-- VOTING PROMPT STAGE (per player) -->
+      <div id="stage-voting-prompt" class="stage">
+        <div class="voter-card">
+          <p class="voter-heading" id="voter-heading">JIMMY RÖSTAR</p>
+          <p class="voter-sub">Välj den som passar bäst.</p>
+          <div id="voter-buttons" class="vote-buttons"></div>
+        </div>
+      </div>
+
+      <!-- CONFIRM STAGE -->
+      <div id="stage-confirm" class="stage">
+        <div class="confirm-card">
+          <p class="confirm-heading">Är du säker?</p>
+          <p class="confirm-choice" id="confirm-choice-text"></p>
+          <div class="confirm-actions">
+            <button id="btn-confirm-yes" class="btn btn-primary btn-huge">JA, KÖR</button>
+            <button id="btn-confirm-no" class="btn btn-ghost btn-huge">ÄNDRA</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- LOCKED STAGE -->
+      <div id="stage-locked" class="stage">
+        <div class="locked-card">
+          <div class="lock-icon">🔒</div>
+          <p class="locked-text">RÖST LÅST</p>
+        </div>
+      </div>
+
+      <!-- REVEAL STAGE -->
+      <div id="stage-reveal" class="stage">
+        <h2 class="reveal-title">RESULTAT</h2>
+        <div id="reveal-bars" class="reveal-bars"></div>
+        <p id="reveal-verdict" class="reveal-verdict"></p>
+        <div id="points-gained" class="points-gained"></div>
+        <button id="btn-next-question" class="btn btn-primary btn-huge">NÄSTA FRÅGA</button>
+      </div>
+
+      <!-- CHAOS EXPLAIN STAGE -->
+      <div id="stage-chaos" class="stage">
+        <div class="voter-card">
+          <p class="voter-heading">💀 KAOS!</p>
+          <p class="voter-sub">Alla måste förklara sin röst innan ni går vidare.</p>
+          <button id="btn-chaos-continue" class="btn btn-primary btn-huge">VI HAR FÖRKLARAT OSS</button>
+        </div>
+      </div>
+
+    </main>
+  </section>
+
+  <!-- ================= GAME OVER SCREEN ================= -->
+  <section id="screen-over" class="screen">
+    <div class="bg-glow"></div>
+    <div class="content-wrap">
+      <h1 class="title-main title-over">GAME OVER</h1>
+      <div id="final-ranking" class="final-ranking"></div>
+      <div id="winner-title-card" class="winner-title-card"></div>
+      <button id="btn-play-again" class="btn btn-primary btn-huge">SPELA IGEN</button>
+    </div>
+    <div id="confetti-layer" class="confetti-layer" aria-hidden="true"></div>
+  </section>
+
+</div>
+
+<script src="script.js"></script>
+</body>
+</html>
